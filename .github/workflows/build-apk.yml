@@ -19,10 +19,7 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Configurar Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Crear app Android con WebView
+      - name: Crear app Android con WebView y compilar APK
         run: |
           mkdir -p bomberman-app/app/src/main/java/com/retro/bomberman
           mkdir -p bomberman-app/app/src/main/res/values
