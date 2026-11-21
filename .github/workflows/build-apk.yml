@@ -25,7 +25,6 @@ jobs:
           mkdir -p bomberman-app/app/src/main/java/com/retro/bomberman
           mkdir -p bomberman-app/app/src/main/res/values
           mkdir -p bomberman-app/app/src/main/assets
-          mkdir -p bomberman-app/gradle/wrapper
 
           cp www/index.html bomberman-app/app/src/main/assets/index.html
 
@@ -117,26 +116,12 @@ jobs:
           }
           EOF
 
-          cat << 'EOF' > bomberman-app/gradle/wrapper/gradle-wrapper.properties
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-8.5-bin.zip
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          EOF
-
           curl -sSL -o /tmp/gradle-8.5.zip https://services.gradle.org/distributions/gradle-8.5-bin.zip
           unzip -q /tmp/gradle-8.5.zip -d /tmp
-          cp /tmp/gradle-8.5/lib/gradle-launcher-8.5.jar bomberman-app/gradle/wrapper/gradle-wrapper.jar
-
-          cat << 'EOF' > bomberman-app/gradlew
-          #!/bin/sh
-          exec java -jar "$(dirname "$0")/gradle/wrapper/gradle-wrapper.jar" "$@"
-          EOF
+          chmod +x /tmp/gradle-8.5/bin/gradle
 
           cd bomberman-app
-          chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          /tmp/gradle-8.5/bin/gradle assembleDebug --no-daemon
 
       - name: Subir APK listo para descargar
         uses: actions/upload-artifact@v4
