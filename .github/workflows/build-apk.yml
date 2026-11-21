@@ -1,0 +1,119 @@
+name: Compilar Bomberman APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Configurar Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
+
+      - name: Crear app Android
+        run: |
+          mkdir -p android/app/src/main/assets
+          mkdir -p android/app/src/main/java/com/example/bomberman
+          cp index.html android/app/src/main/assets/index.html
+
+          cat > android/settings.gradle << 'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "Bomberman"
+          include ':app'
+          EOF
+
+          cat > android/build.gradle << 'EOF'
+          plugins {
+              id 'com.android.application' version '8.2.2' apply false
+          }
+          EOF
+
+          cat > android/app/build.gradle << 'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              namespace 'com.example.bomberman'
+              compileSdk 34
+              defaultConfig {
+                  applicationId 'com.example.bomberman'
+                  minSdk 21
+                  targetSdk 34
+                  versionCode 1
+                  versionName '1.0'
+              }
+          }
+          EOF
+
+          cat > android/app/src/main/AndroidManifest.xml << 'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:label="Bomberman"
+                  android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > android/app/src/main/java/com/example/bomberman/MainActivity.java << 'EOF'
+          package com.example.bomberman;
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.webkit.WebView;
+          public class MainActivity extends Activity {
+              @Override
+              protected void onCreate(Bundle b) {
+                  super.onCreate(b);
+                  WebView w = new WebView(this);
+                  w.getSettings().setJavaScriptEnabled(true);
+                  setContentView(w);
+                  w.loadUrl("file:///android_asset/index.html");
+              }
+          }
+          EOF
+
+      - name: Compilar APK
+        run: gradle -p android assembleDebug --no-daemon
+
+      - name: Subir APK para descargar
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bomberman-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
