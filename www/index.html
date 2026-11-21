@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Bomberman Retro</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+    body {
+      margin: 0;
+      background: #111;
+      color: #fff;
+      font-family: 'Courier New', Courier, monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #hud {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: #222;
+      border-bottom: 3px solid #444;
+      font-size: 16px;
+      font-weight: bold;
+    }
+    #game-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      width: 100%;
+    }
+    canvas {
+      background: #1e7d32;
+      border: 4px solid #555;
+      max-width: 96vw;
+      max-height: 56vh;
+      image-rendering: pixelated;
+    }
+    #controls {
+      width: 100%;
+      max-width: 480px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 24px 24px;
+    }
+    .dpad {
+      display: grid;
+      grid-template-columns: repeat(3, 56px);
+      grid-template-rows: repeat(3, 56px);
+      gap: 4px;
+    }
+    .btn {
+      background: #333;
+      border: 2px solid #777;
+      border-radius: 12px;
+      color: #fff;
+      font-size: 22px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 0 #000;
+    }
+    .btn:active {
+      transform: translateY(3px);
+      box-shadow: 0 1px 0 #000;
+      background: #555;
+    }
+    #btn-bomb {
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      background: #c62828;
+      border-color: #ff8a80;
+      font-size: 16px;
+    }
+    #btn-bomb:active {
+      background: #e53935;
+    }
+    #overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.85);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 20px;
+      z-index: 10;
+    }
+    #overlay h1 {
+      color: #ffca28;
+      margin-bottom: 10px;
+    }
+    #overlay button {
+      margin-top: 20px;
+      padding: 12px 24px;
+      font-size: 18px;
+      font-weight: bold;
+      background: #2e7d32;
+      color: white;
+      border: 2px solid #81c784;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <span id="lvl">NIVEL: 1</span>
+    <span id="score">PTS: 0</span>
+    <span id="enemies-left">ENEMIGOS: 3</span>
+  </div>
+
+  <div id="game-container">
+    <canvas id="game" width="416" height="352"></canvas>
+  </div>
+
+  <div id="controls">
+    <div class="dpad">
+      <div></div>
+      <button class="btn" data-dir="up">▲</button>
+      <div></div>
+      <button class="btn" data-dir="left">◀</button>
+      <div></div>
+      <button class="btn" data-dir="right">▶</button>
+      <div></div>
+      <button class="btn" data-dir="down">▼</button>
+      <div></div>
+    </div>
+    <button class="btn" id="btn-bomb">BOMBA</button>
+  </div>
+
+  <div id="overlay">
+    <h1 id="overlay-title">GAME OVER</h1>
+    <p id="overlay-sub">Puntuación: 0</p>
+    <button id="restart-btn">JUGAR DE NUEVO</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const TILE = 32;
+    const COLS = 13;
+    const ROWS = 11;
+
+    // 0: vacío, 1: muro indestructible, 2: bloque destructible
+    let grid = [];
+    let player = { x: 1, y: 1, alive: true };
+    let bombs = [];
+    let explosions = [];
+    let enemies = [];
+    let score = 0;
+    let level = 1;
+    let gameOver = false;
+    let enemyTimer = 0;
+
+    function initLevel() {
+      grid = [];
+      bombs = [];
+      explosions = [];
+      enemies = [];
+      player = { x: 1, y: 1, alive: true };
+      gameOver = false;
+      document.getElementById('overlay').style.display = 'none';
+
+      for (let r = 0; r < ROWS; r++) {
+        const row = [];
+        for (let c = 0; c < COLS; c++) {
+          if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) {
+            row.push(1);
+          } else if (r % 2 === 0 && c % 2 === 0) {
+            row.push(1);
+          } else if ((r <= 2 && c <= 2)) {
+            row.push(0); // Zona segura inicial
+          } else {
+            row.push(Math.random() < 0.45 ? 2 : 0);
+          }
+        }
+        grid.push(row);
+      }
+
+      // Generar enemigos según el nivel
+      const enemyCount = 2 + level;
+      let placed = 0;
+      while (placed < enemyCount) {
+        const rx = Math.floor(Math.random() * (COLS - 2)) + 1;
+        const ry = Math.floor(Math.random() * (ROWS - 2)) + 1;
+        if (grid[ry][rx] === 0 && (rx > 4 || ry > 4)) {
+          enemies.push({ x: rx, y: ry });
+          placed++;
+        }
+      }
+      updateHUD();
+    }
+
+    function updateHUD() {
+      document.getElementById('lvl').textContent = `NIVEL: ${level}`;
+      document.getElementById('score').textContent = `PTS: ${score}`;
+      document.getElementById('enemies-left').textContent = `ENEMIGOS: ${enemies.length}`;
+    }
+
+    function isWalkable(x, y) {
+      if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return false;
+      if (grid[y][x] !== 0) return false;
+      if (bombs.some(b => b.x === x && b.y === y)) return false;
+      return true;
+    }
+
+    function movePlayer(dx, dy) {
+      if (gameOver || !player.alive) return;
+      const nx = player.x + dx;
+      const ny = player.y + dy;
+      if (isWalkable(nx, ny)) {
+        player.x = nx;
+        player.y = ny;
+        checkCollisions();
+      }
+    }
+
+    function placeBomb() {
+      if (gameOver || !player.alive) return;
+      if (bombs.length >= 2) return; // Máximo 2 bombas simultáneas
+      if (bombs.some(b => b.x === player.x && b.y === player.y)) return;
+      bombs.push({ x: player.x, y: player.y, timer: 140 });
+    }
+
+    function detonate(bomb) {
+      const dirs = [
+        { dx: 0, dy: 0 },
+        { dx: 1, dy: 0 },
+        { dx: -1, dy: 0 },
+        { dx: 0, dy: 1 },
+        { dx: 0, dy: -1 }
+      ];
+      const range = 2;
+
+      dirs.forEach(d => {
+        if (d.dx === 0 && d.dy === 0) {
+          explosions.push({ x: bomb.x, y: bomb.y, timer: 25 });
+          return;
+        }
+        for (let i = 1; i <= range; i++) {
+          const tx = bomb.x + d.dx * i;
+          const ty = bomb.y + d.dy * i;
+          if (tx < 0 || tx >= COLS || ty < 0 || ty >= ROWS) break;
+          if (grid[ty][tx] === 1) break; // Muro sólido detiene fuego
+          explosions.push({ x: tx, y: ty, timer: 25 });
+          if (grid[ty][tx] === 2) {
+            grid[ty][tx] = 0;
+            score += 10;
+            break; // Rompe un bloque y detiene la llama
+          }
+        }
+      });
+      updateHUD();
+    }
+
+    function moveEnemies() {
+      const dirs = [
+        { dx: 1, dy: 0 },
+        { dx: -1, dy: 0 },
+        { dx: 0, dy: 1 },
+        { dx: 0, dy: -1 }
+      ];
+      enemies.forEach(e => {
+        const valid = dirs.filter(d => isWalkable(e.x + d.dx, e.y + d.dy));
+        if (valid.length > 0) {
+          const choice = valid[Math.floor(Math.random() * valid.length)];
+          e.x += choice.dx;
+          e.y += choice.dy;
+        }
+      });
+    }
+
+    function checkCollisions() {
+      // Jugador toca enemigo
+      if (enemies.some(e => e.x === player.x && e.y === player.y)) {
+        endGame(false);
+      }
+      // Jugador toca explosión
+      if (explosions.some(ex => ex.x === player.x && ex.y === player.y)) {
+        endGame(false);
+      }
+      // Enemigos tocan explosión
+      const before = enemies.length;
+      enemies = enemies.filter(e => !explosions.some(ex => ex.x === e.x && ex.y === e.y));
+      if (enemies.length < before) {
+        score += (before - enemies.length) * 100;
+        updateHUD();
+      }
+      // Pasar de nivel
+      if (enemies.length === 0 && !gameOver) {
+        level++;
+        initLevel();
+      }
+    }
+
+    function endGame(won) {
+      gameOver = true;
+      player.alive = false;
+      document.getElementById('overlay-title').textContent = won ? '¡GANASTE!' : 'GAME OVER';
+      document.getElementById('overlay-sub').textContent = `Puntuación final: ${score}`;
+      document.getElementById('overlay').style.display = 'flex';
+    }
+
+    function update() {
+      if (!gameOver) {
+        // Actualizar bombas
+        for (let i = bombs.length - 1; i >= 0; i--) {
+          bombs[i].timer--;
+          if (bombs[i].timer <= 0) {
+            const b = bombs.splice(i, 1)[0];
+            detonate(b);
+          }
+        }
+        // Actualizar explosiones
+        for (let i = explosions.length - 1; i >= 0; i--) {
+          explosions[i].timer--;
+          if (explosions[i].timer <= 0) {
+            explosions.splice(i, 1);
+          }
+        }
+        // Mover enemigos cada ~38 frames
+        enemyTimer++;
+        if (enemyTimer >= 38) {
+          enemyTimer = 0;
+          moveEnemies();
+        }
+        checkCollisions();
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Dibujar tablero
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const x = c * TILE;
+          const y = r * TILE;
+          if (grid[r][c] === 1) {
+            ctx.fillStyle = '#616161';
+            ctx.fillRect(x, y, TILE, TILE);
+            ctx.strokeStyle = '#424242';
+            ctx.strokeRect(x + 1, y + 1, TILE - 2, TILE - 2);
+          } else if (grid[r][c] === 2) {
+            ctx.fillStyle = '#a1887f';
+            ctx.fillRect(x + 1, y + 1, TILE - 2, TILE - 2);
+            ctx.strokeStyle = '#5d4037';
+            ctx.strokeRect(x + 2, y + 2, TILE - 4, TILE - 4);
+          }
+        }
+      }
+
+      // Dibujar bombas
+      bombs.forEach(b => {
+        ctx.fillStyle = '#111';
+        ctx.beginPath();
+        ctx.arc(b.x * TILE + TILE / 2, b.y * TILE + TILE / 2, TILE * 0.36, 0, Math.PI * 2);
+        ctx.fill();
+        // Mecha parpadeante
+        ctx.fillStyle = b.timer % 20 < 10 ? '#ff5722' : '#ffeb3b';
+        ctx.fillRect(b.x * TILE + TILE / 2 - 2, b.y * TILE + 3, 5, 5);
+      });
+
+      // Dibujar explosiones
+      explosions.forEach(ex => {
+        ctx.fillStyle = '#ff9800';
+        ctx.fillRect(ex.x * TILE + 2, ex.y * TILE + 2, TILE - 4, TILE - 4);
+        ctx.fillStyle = '#ffeb3b';
+        ctx.fillRect(ex.x * TILE + 7, ex.y * TILE + 7, TILE - 14, TILE - 14);
+      });
+
+      // Dibujar enemigos (Globos naranjas clásicos)
+      enemies.forEach(e => {
+        ctx.fillStyle = '#ff7043';
+        ctx.beginPath();
+        ctx.arc(e.x * TILE + TILE / 2, e.y * TILE + TILE / 2, TILE * 0.38, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(e.x * TILE + 9, e.y * TILE + 10, 4, 5);
+        ctx.fillRect(e.x * TILE + 19, e.y * TILE + 10, 4, 5);
+      });
+
+      // Dibujar jugador (Bomberman blanco/azul)
+      if (player.alive) {
+        const px = player.x * TILE;
+        const py = player.y * TILE;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(px + TILE / 2, py + TILE / 2, TILE * 0.38, 0, Math.PI * 2);
+        ctx.fill();
+        // Visor
+        ctx.fillStyle = '#ffccbc';
+        ctx.fillRect(px + 9, py + 11, 14, 7);
+        ctx.fillStyle = '#000';
+        ctx.fillRect(px + 11, py + 13, 3, 4);
+        ctx.fillRect(px + 18, py + 13, 3, 4);
+        // Antena rosa
+        ctx.fillStyle = '#ec407a';
+        ctx.beginPath();
+        ctx.arc(px + TILE / 2, py + 3, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    // Controles táctiles
+    document.querySelectorAll('[data-dir]').forEach(btn => {
+      const handler = (e) => {
+        e.preventDefault();
+        const dir = btn.dataset.dir;
+        if (dir === 'up') movePlayer(0, -1);
+        if (dir === 'down') movePlayer(0, 1);
+        if (dir === 'left') movePlayer(-1, 0);
+        if (dir === 'right') movePlayer(1, 0);
+      };
+      btn.addEventListener('touchstart', handler, { passive: false });
+      btn.addEventListener('mousedown', handler);
+    });
+
+    const bombBtn = document.getElementById('btn-bomb');
+    bombBtn.addEventListener('touchstart', (e) => { e.preventDefault(); placeBomb(); }, { passive: false });
+    bombBtn.addEventListener('mousedown', (e) => { e.preventDefault(); placeBomb(); });
+
+    // Controles teclado (por si lo pruebas en PC)
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowUp') movePlayer(0, -1);
+      if (e.key === 'ArrowDown') movePlayer(0, 1);
+      if (e.key === 'ArrowLeft') movePlayer(-1, 0);
+      if (e.key === 'ArrowRight') movePlayer(1, 0);
+      if (e.key === ' ') placeBomb();
+    });
+
+    document.getElementById('restart-btn').addEventListener('click', () => {
+      score = 0;
+      level = 1;
+      initLevel();
+    });
+
+    initLevel();
+    loop();
+  </script>
+</body>
+</html>
